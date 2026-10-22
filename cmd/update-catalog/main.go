@@ -43,7 +43,7 @@ func main() {
 		exitf("fetch release: %v", err)
 	}
 
-	sourceManifest, err := fetchSourceManifest(ctx, client, token, repo, tag)
+	sourceManifest, err := fetchSourceManifest(ctx, client, token, repo, tag, release.Assets)
 	if err != nil {
 		exitf("fetch source manifest: %v", err)
 	}
@@ -71,8 +71,23 @@ func fetchRelease(ctx context.Context, client *http.Client, token, repo, tag str
 	return release, nil
 }
 
-func fetchSourceManifest(ctx context.Context, client *http.Client, token, repo, tag string) (*catalog.SourceManifest, error) {
+func fetchSourceManifest(ctx context.Context, client *http.Client, token, repo, tag string, assets []catalog.Asset) (*catalog.SourceManifest, error) {
+	// Prefer the manifest packaged with the release. Some plugins keep their
+	// source manifest below a subdirectory, so the root-level raw URL may not exist.
+	for _, asset := range assets {
+		if asset.Name == "manifest.json" && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+			manifest, err := fetchManifestURL(ctx, client, token, asset.BrowserDownloadURL)
+			if err == nil {
+				return manifest, nil
+			}
+			// Fall back to the conventional root-level source manifest below.
+		}
+	}
 	url := "https://raw.githubusercontent.com/" + repo + "/" + tag + "/manifest.json"
+	return fetchManifestURL(ctx, client, token, url)
+}
+
+func fetchManifestURL(ctx context.Context, client *http.Client, token, url string) (*catalog.SourceManifest, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
